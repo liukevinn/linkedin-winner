@@ -1,0 +1,3 @@
+rich>=13.0.0
+pandas>=2.0.0        # optional — not used by the core script
+playwright>=1.40.0   # optional — only needed for --scrape mode
