@@ -4,7 +4,7 @@ MANUAL_RESULTS — only needed if scraping fails (--manual mode).
                  Paste scores here as a fallback.
 """
 
-PLAYER_NAMES = ["Kevin Liu", "Daniel Suh", "Aiden Tauro", "Eric Guan", "Kaden Chien"]
+PLAYER_NAMES = ["Kevin Liu", "Daniel Suh", "Aiden Tauro", "Eric Guan", "Kaden Chien", "Evan Zhong", "Matthew Lu"]
 
 GAME_URLS = {
     "pinpoint":   "https://www.linkedin.com/games/pinpoint/results",
@@ -44,6 +44,8 @@ MANUAL_RESULTS = {
         "Aiden Tauro": None,
         "Eric Guan":   None,
         "Kaden Chien": None,
+        "Evan Zhong": None,
+        "Matthew Lu": None,
     },
     "queens": {
         "Kevin Liu":   None,
@@ -51,6 +53,8 @@ MANUAL_RESULTS = {
         "Aiden Tauro": None,
         "Eric Guan":   None,
         "Kaden Chien": None,
+        "Evan Zhong": None,
+        "Matthew Lu": None,
     },
     "crossclimb": {
         "Kevin Liu":   None,
@@ -58,6 +62,8 @@ MANUAL_RESULTS = {
         "Aiden Tauro": None,
         "Eric Guan":   None,
         "Kaden Chien": None,
+        "Evan Zhong": None,
+        "Matthew Lu": None,
     },
     "tango": {
         "Kevin Liu":   None,
@@ -65,6 +71,8 @@ MANUAL_RESULTS = {
         "Aiden Tauro": None,
         "Eric Guan":   None,
         "Kaden Chien": None,
+        "Evan Zhong": None,
+        "Matthew Lu": None,
     },
     "zip": {
         "Kevin Liu":   None,
@@ -72,13 +80,17 @@ MANUAL_RESULTS = {
         "Aiden Tauro": None,
         "Eric Guan":   None,
         "Kaden Chien": None,
-    },
+        "Evan Zhong": None,
+        "Matthew Lu": None,
+        },
     "mini_sudoku": {
         "Kevin Liu":   None,
         "Daniel Suh":  None,
         "Aiden Tauro": None,
         "Eric Guan":   None,
         "Kaden Chien": None,
+        "Evan Zhong": None,
+        "Matthew Lu": None,
     },
     "patches": {
         "Kevin Liu":   None,
@@ -86,6 +98,8 @@ MANUAL_RESULTS = {
         "Aiden Tauro": None,
         "Eric Guan":   None,
         "Kaden Chien": None,
+        "Evan Zhong": None,
+        "Matthew Lu": None,
     },
 }
 
