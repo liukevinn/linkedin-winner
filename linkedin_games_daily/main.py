@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 import argparse
+import asyncio
 import sys
+import tempfile
 from datetime import date
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -15,7 +18,7 @@ from rich import box
 from config import PLAYER_NAMES, GAME_URLS, GAME_SCORE_DIRECTIONS, MANUAL_RESULTS
 from scoring import compute_standings, parse_score, _fmt_pts
 
-console = Console()
+console = Console(record=True)
 
 GAME_URLS_ORDER = list(GAME_URLS.keys())
 
@@ -164,6 +167,36 @@ def _render_table(
     console.print()
 
 
+def _export_pdf(output_path: str) -> None:
+    """Render the recorded console output to a PDF via a headless Playwright page."""
+    html = console.export_html(inline_styles=True)
+
+    # Inject CSS tweaks: wider viewport, no page-break artifacts, dark bg preserved.
+    style_patch = """
+    <style>
+      @page { size: A4 landscape; margin: 1.2cm; }
+      body  { margin: 0; padding: 0; background: #0d1117; }
+      pre   { white-space: pre; overflow: visible; font-size: 13px; line-height: 1.45; }
+    </style>
+    """
+    html = html.replace("</head>", f"{style_patch}</head>")
+
+    async def _run() -> None:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={"width": 1400, "height": 900})
+            await page.set_content(html, wait_until="load")
+            await page.pdf(
+                path=output_path,
+                print_background=True,
+                margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+            )
+            await browser.close()
+
+    asyncio.run(_run())
+
+
 def _render_winner(totals: dict[str, float], players: list[str]) -> None:
     top = max(totals[p] for p in players)
     winners = [p for p in players if totals[p] == top]
@@ -243,6 +276,13 @@ def main() -> None:
 
     _render_table(game_results, per_game_pts, totals, players, games)
     _render_winner(totals, players)
+
+    pdf_path = Path(__file__).parent / f"linkedin_games_{date.today()}.pdf"
+    try:
+        _export_pdf(str(pdf_path))
+        console.print(f"\n[dim]PDF saved → {pdf_path}[/]")
+    except Exception as exc:
+        console.print(f"\n[yellow]PDF export failed: {exc}[/]")
 
 
 if __name__ == "__main__":
