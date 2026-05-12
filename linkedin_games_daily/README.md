@@ -72,17 +72,56 @@ MANUAL_RESULTS = {
 
 ## How scoring works
 
-For each game:
+### Points per game
 
-1. Only players with a valid score are ranked.
-2. Best player earns **N** points, where N = total players in today's run.
-3. Each subsequent rank earns one fewer point (2nd → N−1, last → 1).
-4. Players who did not play earn **0 points**.
-5. **Ties** share the points equally:
-   - Two players tied for 1st with N=4: they split 4+3 = **3.5 pts each**.
-   - The next distinct rank continues below them (3rd in this case).
+Each game is scored independently using rank-based points:
 
-The overall winner is the player with the highest total across all games.
+| Finish | Points (N players) |
+|--------|-------------------|
+| 1st    | N                 |
+| 2nd    | N − 1             |
+| 3rd    | N − 2             |
+| …      | …                 |
+| Last   | 1                 |
+| DNS    | 0 (did not play)  |
+
+Only players with a recorded score are ranked. DNS players always earn 0 and do not affect other players' point totals.
+
+### Tie-breaking
+
+Tied players share the **average** of the points they would have earned individually.
+
+Example — 5 players, Zip game:
+
+```
+Kaden  0:03  → sole 1st place          → 5 pts
+Kevin  0:04  ┐
+Daniel 0:04  ├ 4-way tie for 2nd–5th   → avg(4+3+2+1)/4 = 2.5 pts each
+Aiden  0:04  │
+Eric   0:04  ┘
+```
+
+The next distinct rank after a tie group picks up where the group left off. In the example above, no one is ranked 3rd, 4th, or 5th individually — the tie consumed all four of those slots.
+
+### Overall winner
+
+Each player's points are summed across all games. The highest total wins.
+
+Worked example (5-player run):
+
+```
+              Pinpoint  Queens  Climb  Tango  Zip   Sudoku  Patches  Total
+Kevin Liu       3.5       5       3      5     2.5    4       4.5     27.5
+Eric Guan        0        4       0      4     2.5    5       2.5      18
+Kaden Chien     3.5       0       4      0     5      0       4.5      17
+Daniel Suh      3.5       0       5      0     2.5    0       2.5      13.5
+Aiden Tauro     3.5       0       0      0     2.5    0       1         7
+```
+
+- Pinpoint: Kevin/Daniel/Aiden/Kaden tied 1st (4-way) → avg(5+4+3+2)/4 = 3.5 each; Eric DNS → 0
+- Queens: Kevin 1st → 5, Eric 2nd → 4; rest DNS → 0
+- Climb: Daniel 1st → 5, Kaden 2nd → 4, Kevin 3rd → 3; rest DNS → 0
+- Patches: Kevin/Kaden tied 1st → avg(5+4)/2 = 4.5 each; Daniel/Eric tied 3rd → avg(3+2)/2 = 2.5 each; Aiden 5th → 1
 
 ---
 
