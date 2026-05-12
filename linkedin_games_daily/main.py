@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -18,21 +17,21 @@ from rich import box
 from config import PLAYER_NAMES, GAME_URLS, GAME_SCORE_DIRECTIONS, MANUAL_RESULTS
 from scoring import compute_standings, parse_score, _fmt_pts
 
-console = Console(record=True)
+console = Console(record=True, no_color=True, highlight=False, width=160)
 
 GAME_URLS_ORDER = list(GAME_URLS.keys())
 
 GAME_SHORT = {
     "pinpoint":   "Pinpoint",
     "queens":     "Queens",
-    "crossclimb": "Crossclimb",
+    "crossclimb": "Climb",
     "tango":      "Tango",
     "zip":        "Zip",
     "mini_sudoku": "Sudoku",
     "patches":    "Patches",
 }
 
-_MEDALS = {1: "[bold gold1]★[/]", 2: "[bold white]2nd[/]", 3: "[bold #cd7f32]3rd[/]"}
+_PLACE = {1: "1st", 2: "2nd", 3: "3rd"}
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +40,7 @@ _MEDALS = {1: "[bold gold1]★[/]", 2: "[bold white]2nd[/]", 3: "[bold #cd7f32]3
 
 def _load_scraped(players: list[str], debug: bool) -> dict[str, dict[str, object]]:
     from scraper import scrape_games
-    console.print("[cyan]Scraping LinkedIn Games leaderboards…[/]")
+    console.print("Scraping LinkedIn Games leaderboards...")
     scraped = scrape_games(players, debug=debug)
 
     merged: dict[str, dict[str, object]] = {}
@@ -51,7 +50,7 @@ def _load_scraped(players: list[str], debug: bool) -> dict[str, dict[str, object
         if has_data:
             merged[game] = live
         elif game in MANUAL_RESULTS:
-            console.print(f"  [yellow]{game}: no scraped scores — using MANUAL_RESULTS fallback[/]")
+            console.print(f"  {game}: no scraped scores - using MANUAL_RESULTS fallback")
             merged[game] = {p: MANUAL_RESULTS[game].get(p) for p in players}
         else:
             merged[game] = {p: None for p in players}
@@ -107,17 +106,9 @@ def _compute_game_ranks(
 
 def _rank_cell(rank_info: tuple | None) -> str:
     if rank_info is None:
-        return "[dim]—[/]"
+        return "-"
     rank, score = rank_info
-    if rank == 1:
-        label = "[bold gold1]★[/]"
-    elif rank == 2:
-        label = "[bold white]2[/]"
-    elif rank == 3:
-        label = "[bold #cd7f32]3[/]"
-    else:
-        label = str(rank)
-    return f"{label}  {score}"
+    return f"{rank}  {score}"
 
 
 # ---------------------------------------------------------------------------
@@ -135,15 +126,16 @@ def _render_table(
     sorted_players = sorted(players, key=lambda p: -totals[p])
 
     table = Table(
-        box=box.ROUNDED,
-        header_style="bold cyan",
-        show_lines=True,
+        box=box.SIMPLE_HEAD,
+        show_lines=False,
+        pad_edge=True,
+        header_style="",
     )
-    table.add_column("Rank", justify="center", width=5)
-    table.add_column("Player", min_width=13)
+    table.add_column("Rank", justify="center", width=5, no_wrap=True)
+    table.add_column("Player", min_width=13, no_wrap=True)
     for game in games:
-        table.add_column(GAME_SHORT.get(game, game), justify="center", min_width=11)
-    table.add_column("Pts", justify="right", min_width=5, style="bold")
+        table.add_column(GAME_SHORT.get(game, game), justify="center", min_width=8, no_wrap=True)
+    table.add_column("Pts", justify="right", min_width=5, no_wrap=True)
 
     prev_total: float | None = None
     visual_rank = 0
@@ -155,7 +147,7 @@ def _render_table(
             visual_rank = display_pos
         prev_total = total
 
-        rank_label = _MEDALS.get(visual_rank, str(visual_rank))
+        rank_label = _PLACE.get(visual_rank, str(visual_rank))
         row: list[str] = [rank_label, player]
         for game in games:
             row.append(_rank_cell(game_ranks.get(game, {}).get(player)))
@@ -164,19 +156,38 @@ def _render_table(
 
     console.print()
     console.print(table)
-    console.print()
 
+
+def _render_winner(totals: dict[str, float], players: list[str]) -> None:
+    top = max(totals[p] for p in players)
+    winners = [p for p in players if totals[p] == top]
+    pts_label = _fmt_pts(top)
+
+    if len(winners) == 1:
+        msg = Text(f"Winner: {winners[0]}  ({pts_label} pts)", justify="center")
+        panel = Panel(msg, title="Today's Winner", padding=(1, 4))
+    else:
+        names = " & ".join(winners)
+        msg = Text(f"Tie: {names}  ({pts_label} pts each)", justify="center")
+        panel = Panel(msg, title="It's a Tie!", padding=(1, 4))
+
+    console.print(panel)
+
+
+# ---------------------------------------------------------------------------
+# PDF export
+# ---------------------------------------------------------------------------
 
 def _export_pdf(output_path: str) -> None:
-    """Render the recorded console output to a PDF via a headless Playwright page."""
     html = console.export_html(inline_styles=True)
 
-    # Inject CSS tweaks: wider viewport, no page-break artifacts, dark bg preserved.
     style_patch = """
     <style>
-      @page { size: A4 landscape; margin: 1.2cm; }
-      body  { margin: 0; padding: 0; background: #0d1117; }
-      pre   { white-space: pre; overflow: visible; font-size: 13px; line-height: 1.45; }
+      @page { size: A4 landscape; margin: 1.5cm; }
+      body  { margin: 0; padding: 0; background: #ffffff; color: #000000; }
+      pre   { white-space: pre; font-size: 13px; line-height: 1.5;
+              font-family: "Courier New", Courier, monospace;
+              color: #000000; background: #ffffff; }
     </style>
     """
     html = html.replace("</head>", f"{style_patch}</head>")
@@ -195,23 +206,6 @@ def _export_pdf(output_path: str) -> None:
             await browser.close()
 
     asyncio.run(_run())
-
-
-def _render_winner(totals: dict[str, float], players: list[str]) -> None:
-    top = max(totals[p] for p in players)
-    winners = [p for p in players if totals[p] == top]
-    pts_label = _fmt_pts(top)
-
-    if len(winners) == 1:
-        msg = Text(f"★  {winners[0]}  ★", style="bold gold1", justify="center")
-        panel = Panel(msg, title="[bold]Today's Winner[/]", subtitle=f"{pts_label} pts",
-                      border_style="gold1", padding=(1, 6))
-    else:
-        msg = Text(f"⭐  {'  &  '.join(winners)}  ⭐", style="bold gold1", justify="center")
-        panel = Panel(msg, title="[bold]It's a Tie![/]", subtitle=f"Tied at {pts_label} pts",
-                      border_style="gold1", padding=(1, 4))
-
-    console.print(panel)
 
 
 # ---------------------------------------------------------------------------
@@ -246,15 +240,13 @@ def main() -> None:
     players = args.players or PLAYER_NAMES
     unknown = [p for p in players if p not in PLAYER_NAMES]
     if unknown:
-        console.print(f"[red]Unknown player(s): {unknown}\nValid: {PLAYER_NAMES}[/]")
+        console.print(f"Unknown player(s): {unknown}\nValid: {PLAYER_NAMES}")
         sys.exit(1)
 
     today = date.today().strftime("%A, %B %d %Y")
     mode_label = "manual" if args.manual else "scrape"
     console.print(Panel(
-        f"[bold cyan]LinkedIn Games Daily[/]\n"
-        f"[dim]{today}  ·  {mode_label} mode  ·  {len(players)} players[/]",
-        border_style="cyan",
+        f"LinkedIn Games Daily\n{today}  -  {mode_label} mode  -  {len(players)} players",
     ))
 
     if args.manual:
@@ -263,12 +255,12 @@ def main() -> None:
         try:
             game_results = _load_scraped(players, debug=args.debug)
         except Exception as exc:
-            console.print(f"\n[red]Scraping failed: {exc}[/]")
-            console.print("[yellow]Tip: run with --manual and paste scores into MANUAL_RESULTS in config.py[/]")
+            console.print(f"\nScraping failed: {exc}")
+            console.print("Tip: run with --manual and paste scores into MANUAL_RESULTS in config.py")
             sys.exit(1)
 
     if not game_results:
-        console.print("[red]No game data. Try --manual and fill in MANUAL_RESULTS in config.py.[/]")
+        console.print("No game data. Try --manual and fill in MANUAL_RESULTS in config.py.")
         sys.exit(1)
 
     games = [g for g in GAME_URLS_ORDER if g in game_results]
@@ -280,9 +272,9 @@ def main() -> None:
     pdf_path = Path(__file__).parent / f"linkedin_games_{date.today()}.pdf"
     try:
         _export_pdf(str(pdf_path))
-        console.print(f"\n[dim]PDF saved → {pdf_path}[/]")
+        console.print(f"\nPDF saved -> {pdf_path}")
     except Exception as exc:
-        console.print(f"\n[yellow]PDF export failed: {exc}[/]")
+        console.print(f"\nPDF export failed: {exc}")
 
 
 if __name__ == "__main__":
