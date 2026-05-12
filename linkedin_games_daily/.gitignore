@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 ~/.linkedin_games_session/
+.DS_Store
