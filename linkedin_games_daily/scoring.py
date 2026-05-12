@@ -128,3 +128,6 @@ def compute_standings(
             totals[p] += pts
 
     return per_game, totals
+
+
+##this commit is a change to rest the git capabilities
