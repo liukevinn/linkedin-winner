@@ -1,14 +1,14 @@
 """
 Playwright scraper for LinkedIn Games leaderboards.
 
-Uses your real Chrome profile so no LinkedIn login is needed.
-If Chrome is open, the script asks you to quit it (Cmd+Q), scrapes all games,
-then reopens Chrome automatically.
+Credentials are read from .env (LINKEDIN_EMAIL / LINKEDIN_PASSWORD).
+A persistent browser session is saved to SCRAPER_SESSION_DIR so login only
+happens once (or whenever LinkedIn expires the session).
 
 Flow per game:
-  1. Navigate to the game URL.
-  2. Click "See results"              (button.games-share-footer__share-btn)
-  3. Click "See full leaderboard"     (button[aria-label="See full leaderboard"])
+  1. Navigate directly to /games/<game>/results  (skips "See results" entirely).
+  2. Click "See full leaderboard"  (aria-label or text, works across all games).
+  3. Click "See more" until all entries are loaded.
   4. Read every leaderboard row:
        name  →  .pr-connections-leaderboard-player__name
        score →  .pr-connections-leaderboard-player__score
@@ -19,9 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-import platform
-import subprocess
-import time
+from pathlib import Path
 from typing import Optional
 
 from config import GAME_URLS, PLAYER_NAMES, SCRAPER_SESSION_DIR
@@ -37,38 +35,59 @@ PLAYER_SCORE         = ".pr-connections-leaderboard-player__score"
 
 
 # ---------------------------------------------------------------------------
-# Chrome helpers
+# Credentials
 # ---------------------------------------------------------------------------
 
-def _chrome_user_data_dir() -> Optional[str]:
-    """Return Chrome's default profile directory, or None if not found."""
-    sys = platform.system()
-    if sys == "Darwin":
-        path = os.path.expanduser("~/Library/Application Support/Google/Chrome")
-    elif sys == "Windows":
-        path = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data")
-    else:
-        path = os.path.expanduser("~/.config/google-chrome")
-    return path if os.path.isdir(path) else None
+def _load_credentials() -> tuple[str, str]:
+    """Load LINKEDIN_EMAIL and LINKEDIN_PASSWORD from .env."""
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, val = line.partition("=")
+                os.environ.setdefault(key.strip(), val.strip())
+
+    email    = os.environ.get("LINKEDIN_EMAIL", "")
+    password = os.environ.get("LINKEDIN_PASSWORD", "")
+
+    if not email or not password or email == "your_email@example.com":
+        raise RuntimeError(
+            "LinkedIn credentials not set.\n"
+            "Edit .env and fill in LINKEDIN_EMAIL and LINKEDIN_PASSWORD."
+        )
+    return email, password
 
 
-def _chrome_is_running() -> bool:
-    try:
-        if platform.system() == "Darwin":
-            r = subprocess.run(["pgrep", "-x", "Google Chrome"], capture_output=True)
-        else:
-            r = subprocess.run(["pgrep", "-xi", "chrome"], capture_output=True)
-        return r.returncode == 0
-    except Exception:
-        return False
+# ---------------------------------------------------------------------------
+# Login
+# ---------------------------------------------------------------------------
 
+async def _login(page, email: str, password: str) -> None:
+    """Fill in the LinkedIn login form and wait for the feed."""
+    print("[scraper] Logging in to LinkedIn…", flush=True)
+    await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
+    await page.wait_for_timeout(1_500)
 
-def _reopen_chrome() -> None:
-    try:
-        if platform.system() == "Darwin":
-            subprocess.Popen(["open", "-a", "Google Chrome"])
-    except Exception:
-        pass
+    await page.fill('input[name="session_key"]', email)
+    await page.fill('input[name="session_password"]', password)
+    await page.click('button[type="submit"]')
+
+    # Wait up to 60 s — covers normal login AND any 2FA / CAPTCHA the user
+    # needs to complete in the visible browser window.
+    for _ in range(60):
+        if "/feed" in page.url or "/games" in page.url:
+            print("[scraper] Logged in.\n", flush=True)
+            return
+        if any(x in page.url for x in ("checkpoint", "challenge", "verification")):
+            print(
+                "[scraper] LinkedIn is asking for verification.\n"
+                "          Complete it in the browser window — script will continue automatically.",
+                flush=True,
+            )
+        await asyncio.sleep(1)
+
+    raise RuntimeError("Login timed out. Check your credentials in .env.")
 
 
 # ---------------------------------------------------------------------------
@@ -86,21 +105,82 @@ async def _scrape_game(
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        await page.wait_for_timeout(2_500)
 
-        # Step 1 — "See results"
-        btn = page.locator(SEE_RESULTS_BTN).first
-        await btn.wait_for(state="visible", timeout=10_000)
-        await btn.click()
-        await page.wait_for_timeout(2_000)
+        # URLs already point to /results — no "See results" click needed.
+        # Wait for the leaderboard or the "See full leaderboard" button to appear.
+        try:
+            await page.wait_for_function(
+                '() => !!document.querySelector(".pr-connections-leaderboard-player__name") || '
+                '!!document.querySelector("[aria-label=\'See full leaderboard\']") || '
+                '[...document.querySelectorAll("button")].some('
+                '  el => el.offsetParent !== null && el.textContent.trim() === "See full leaderboard"'
+                ')',
+                timeout=12_000,
+            )
+        except Exception:
+            pass
 
-        # Step 2 — "See full leaderboard"
-        full_btn = page.locator(FULL_LEADERBOARD_BTN).first
-        await full_btn.wait_for(state="visible", timeout=10_000)
-        await full_btn.click()
-        await page.wait_for_timeout(1_500)
+        # Step 1 — "See full leaderboard"
+        for full_lb_sel in [
+            FULL_LEADERBOARD_BTN,
+            'button:has-text("See full leaderboard")',
+        ]:
+            try:
+                full_btn = page.locator(full_lb_sel).first
+                await full_btn.scroll_into_view_if_needed(timeout=3_000)
+                if await full_btn.is_visible(timeout=2_000):
+                    await full_btn.click()
+                    await page.wait_for_timeout(1_500)
+                    break
+            except Exception:
+                continue
 
-        # Step 3 — read every player row
+        # Step 3 — scroll through the full leaderboard, clicking "See more" until
+        # all entries are loaded or all target players have been found.
+        # LinkedIn's leaderboard lives in its own scrollable container, so we
+        # must scroll that container (not just the window) to expose the button.
+        LEADERBOARD_SCROLL_SELS = [
+            '[class*="pr-connections-leaderboard__list"]',
+            '[class*="leaderboard__list"]',
+            '[class*="leaderboard-list"]',
+        ]
+        players_lower = {p.lower() for p in players}
+        players_first = {p.split()[0].lower() for p in players}
+
+        for _ in range(100):
+            # Scroll the window and every candidate leaderboard container to
+            # the bottom so the "See more" button becomes reachable.
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            for sel in LEADERBOARD_SCROLL_SELS:
+                await page.evaluate(
+                    f"(() => {{ const el = document.querySelector({repr(sel)}); "
+                    f"if (el) el.scrollTo(0, el.scrollHeight); }})()"
+                )
+            await page.wait_for_timeout(400)
+
+            try:
+                more_btn = page.locator('button:has-text("See more")').first
+                await more_btn.scroll_into_view_if_needed(timeout=2_000)
+                if await more_btn.is_visible(timeout=1_500):
+                    await more_btn.click()
+                    await page.wait_for_timeout(900)
+                else:
+                    break
+            except Exception:
+                break
+
+            # Early exit: check if every target player is already visible.
+            visible_names = set()
+            for el in await page.query_selector_all(PLAYER_NAME):
+                text = (await el.inner_text()).strip().lower()
+                visible_names.add(text)
+            if all(
+                any(vn == p or vn.startswith(pf) for vn in visible_names)
+                for p, pf in zip(players_lower, players_first)
+            ):
+                break
+
+        # Step 4 — read every player row
         containers = await page.query_selector_all(PLAYER_CONTAINER)
         scraped: dict[str, str] = {}
         for container in containers:
@@ -110,10 +190,22 @@ async def _scrape_game(
                 continue
             name  = (await name_el.inner_text()).strip()
             score = (await score_el.inner_text()).strip() if score_el else None
+
+            # LinkedIn shows the logged-in user as "You" — resolve to real name
+            # via the profile image's alt attribute in the same container.
+            if name == "You":
+                img = await container.query_selector(
+                    ".pr-connections-leaderboard-player__image-container img"
+                )
+                if img:
+                    alt = await img.get_attribute("alt")
+                    if alt:
+                        name = alt
+
             if name and score:
                 scraped[name] = score
 
-        # Step 4 — match to PLAYER_NAMES (exact, then first-name fallback)
+        # Step 5 — match to PLAYER_NAMES (exact, then first-name fallback)
         for player in players:
             if player in scraped:
                 results[player] = scraped[player]
@@ -124,11 +216,14 @@ async def _scrape_game(
                         results[player] = score
                         break
 
-        if debug:
+        # Always save HTML when no scores found so we can inspect what LinkedIn showed
+        found_count = sum(v is not None for v in results.values())
+        if debug or found_count == 0:
             path = f"/tmp/linkedin_debug_{game}.html"
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(await page.content())
-            print(f"    [debug] HTML → {path}")
+            if found_count == 0:
+                print(f"    [debug] 0 scores — page saved to {path}")
 
     except Exception as exc:
         print(f"    [error] {exc}")
@@ -148,7 +243,7 @@ async def _scrape_game(
 
 
 # ---------------------------------------------------------------------------
-# Browser launch  (prefer real Chrome profile, fall back to saved session)
+# Browser / session management
 # ---------------------------------------------------------------------------
 
 async def _run(players: list[str], debug: bool) -> dict[str, dict[str, Optional[str]]]:
@@ -161,72 +256,31 @@ async def _run(players: list[str], debug: bool) -> dict[str, dict[str, Optional[
             "  playwright install chromium"
         ) from exc
 
-    chrome_dir      = _chrome_user_data_dir()
-    chrome_was_open = _chrome_is_running() if chrome_dir else False
-
-    # If Chrome is open we need to close it so Playwright can use the profile
-    if chrome_was_open:
-        print(
-            "\n[scraper] Scraper will use your existing Chrome/LinkedIn session.\n"
-            "          Please quit Chrome now (Cmd+Q) — it will reopen automatically.\n",
-            flush=True,
-        )
-        while _chrome_is_running():
-            await asyncio.sleep(1)
-        print("[scraper] Chrome closed. Starting scraper…\n")
-        await asyncio.sleep(1)  # let Chrome fully release its profile lock
-
+    email, password = _load_credentials()
+    session_dir = os.path.expanduser(SCRAPER_SESSION_DIR)
     all_results: dict[str, dict[str, Optional[str]]] = {}
 
     async with async_playwright() as pw:
-        # Launch Chrome with the real user profile (cookies + LinkedIn session intact)
-        if chrome_dir:
-            try:
-                ctx = await pw.chromium.launch_persistent_context(
-                    chrome_dir,
-                    channel="chrome",
-                    headless=False,
-                    args=[
-                        "--no-first-run",
-                        "--no-default-browser-check",
-                        "--disable-session-crashed-bubble",
-                    ],
-                    viewport={"width": 1280, "height": 900},
-                )
-            except Exception as exc:
-                print(f"[scraper] Could not launch with Chrome profile ({exc}), "
-                      "falling back to saved session.")
-                chrome_dir = None
-
-        if not chrome_dir:
-            session_dir = os.path.expanduser(SCRAPER_SESSION_DIR)
-            ctx = await pw.chromium.launch_persistent_context(
-                session_dir,
-                headless=False,
-                args=["--no-sandbox"],
-                viewport={"width": 1280, "height": 900},
-            )
-
+        ctx = await pw.chromium.launch_persistent_context(
+            session_dir,
+            headless=False,
+            args=["--no-sandbox"],
+            viewport={"width": 1280, "height": 900},
+        )
         page = await ctx.new_page()
 
-        # Sanity-check: make sure we're logged in
+        # Check if already logged in
         await page.goto("https://www.linkedin.com/feed/", timeout=30_000)
         await page.wait_for_timeout(2_000)
+
         if any(x in page.url for x in ("login", "authwall", "signup", "checkpoint")):
-            raise RuntimeError(
-                "Not logged in to LinkedIn.\n"
-                "Make sure you are logged in to LinkedIn in Chrome and try again."
-            )
+            await _login(page, email, password)
 
         for game, url in GAME_URLS.items():
             print(f"\n  [{game}]")
             all_results[game] = await _scrape_game(page, game, url, players, debug)
 
         await ctx.close()
-
-    if chrome_was_open:
-        print("\n[scraper] Reopening Chrome…")
-        _reopen_chrome()
 
     return all_results
 

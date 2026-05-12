@@ -7,13 +7,13 @@ MANUAL_RESULTS — only needed if scraping fails (--manual mode).
 PLAYER_NAMES = ["Kevin Liu", "Daniel Suh", "Aiden Tauro", "Eric Guan", "Kaden Chien"]
 
 GAME_URLS = {
-    "pinpoint":   "https://www.linkedin.com/games/pinpoint/",
-    "queens":     "https://www.linkedin.com/games/queens/",
-    "crossclimb": "https://www.linkedin.com/games/crossclimb/",
-    "tango":      "https://www.linkedin.com/games/tango/",
-    "zip":        "https://www.linkedin.com/games/zip/",
-    "mini_sudoku":"https://www.linkedin.com/games/mini-sudoku/",
-    "patches":    "https://www.linkedin.com/games/patches/",
+    "pinpoint":   "https://www.linkedin.com/games/pinpoint/results",
+    "queens":     "https://www.linkedin.com/games/queens/results",
+    "crossclimb": "https://www.linkedin.com/games/crossclimb/results",
+    "tango":      "https://www.linkedin.com/games/tango/results",
+    "zip":        "https://www.linkedin.com/games/zip/results",
+    "mini_sudoku":"https://www.linkedin.com/games/mini-sudoku/results",
+    "patches":    "https://www.linkedin.com/games/patches/results",
 }
 
 # All LinkedIn puzzle games reward speed, so lower completion time = better.
