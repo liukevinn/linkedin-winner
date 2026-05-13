@@ -209,6 +209,56 @@ def _export_pdf(output_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Zip + Patches leaderboard file
+# ---------------------------------------------------------------------------
+
+ZIP_PATCHES_GAMES = ("zip", "patches")
+
+def _write_zip_patches_leaderboard(
+    game_results: dict[str, dict[str, object]],
+    players: list[str],
+) -> None:
+    subset = {g: game_results[g] for g in ZIP_PATCHES_GAMES if g in game_results}
+    if not subset:
+        return
+
+    sub_pts, sub_totals = compute_standings(subset, GAME_SCORE_DIRECTIONS, players)
+    sorted_players = sorted(players, key=lambda p: -sub_totals[p])
+
+    today = date.today()
+    out_path = Path(__file__).parent / f"zip_patches_{today}.txt"
+
+    lines = [
+        f"ZIP + PATCHES LEADERBOARD  -  {today.strftime('%A, %B %d %Y')}",
+        "=" * 50,
+        f"{'Rank':<6}{'Player':<16}{'Zip':>8}{'Patches':>10}{'Pts':>8}",
+        "-" * 50,
+    ]
+
+    prev_total: float | None = None
+    visual_rank = 0
+    display_pos = 0
+    for player in sorted_players:
+        display_pos += 1
+        total = sub_totals[player]
+        if total != prev_total:
+            visual_rank = display_pos
+        prev_total = total
+
+        rank_label = _PLACE.get(visual_rank, str(visual_rank))
+        zip_raw     = game_results.get("zip",     {}).get(player) or "-"
+        patches_raw = game_results.get("patches", {}).get(player) or "-"
+        lines.append(
+            f"{rank_label:<6}{player:<16}{str(zip_raw):>8}{str(patches_raw):>10}{_fmt_pts(total):>8}"
+        )
+
+    lines.append("=" * 50)
+
+    out_path.write_text("\n".join(lines) + "\n")
+    console.print(f"Zip+Patches leaderboard -> {out_path}")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -275,6 +325,8 @@ def main() -> None:
         console.print(f"\nPDF saved -> {pdf_path}")
     except Exception as exc:
         console.print(f"\nPDF export failed: {exc}")
+
+    _write_zip_patches_leaderboard(game_results, players)
 
 
 if __name__ == "__main__":
