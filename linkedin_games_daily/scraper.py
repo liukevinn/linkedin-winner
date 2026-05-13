@@ -144,8 +144,6 @@ async def _scrape_game(
             '[class*="leaderboard__list"]',
             '[class*="leaderboard-list"]',
         ]
-        players_lower = {p.lower() for p in players}
-        players_first = {p.split()[0].lower() for p in players}
 
         for _ in range(100):
             # Scroll the window and every candidate leaderboard container to
@@ -167,17 +165,6 @@ async def _scrape_game(
                 else:
                     break
             except Exception:
-                break
-
-            # Early exit: check if every target player is already visible.
-            visible_names = set()
-            for el in await page.query_selector_all(PLAYER_NAME):
-                text = (await el.inner_text()).strip().lower()
-                visible_names.add(text)
-            if all(
-                any(vn == p or vn.startswith(pf) for vn in visible_names)
-                for p, pf in zip(players_lower, players_first)
-            ):
                 break
 
         # Step 4 — read every player row
