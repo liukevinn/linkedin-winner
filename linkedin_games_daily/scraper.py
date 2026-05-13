@@ -135,37 +135,78 @@ async def _scrape_game(
             except Exception:
                 continue
 
-        # Step 3 — scroll through the full leaderboard, clicking "See more" until
-        # all entries are loaded or all target players have been found.
-        # LinkedIn's leaderboard lives in its own scrollable container, so we
-        # must scroll that container (not just the window) to expose the button.
+        # LinkedIn has a lazy-rendering bug: jumping straight to the bottom
+        # of the leaderboard does not populate all entries. The only reliable
+        # fix is to scroll from the very top to the very bottom at a moderate
+        # pace so every row passes through the viewport and gets rendered.
+        # We do this sweep after the initial open AND after every "See more"
+        # click, then check whether the button has reappeared at the bottom.
         LEADERBOARD_SCROLL_SELS = [
             '[class*="pr-connections-leaderboard__list"]',
             '[class*="leaderboard__list"]',
             '[class*="leaderboard-list"]',
         ]
 
-        for _ in range(100):
-            # Scroll the window and every candidate leaderboard container to
-            # the bottom so the "See more" button becomes reachable.
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        async def _sweep_top_to_bottom() -> None:
+            """Scroll the leaderboard container from top to bottom in small steps."""
+            # Find the scrollable leaderboard container.
+            container_sel = None
             for sel in LEADERBOARD_SCROLL_SELS:
-                await page.evaluate(
-                    f"(() => {{ const el = document.querySelector({repr(sel)}); "
-                    f"if (el) el.scrollTo(0, el.scrollHeight); }})()"
+                found = await page.evaluate(
+                    f"() => !!document.querySelector({repr(sel)})"
                 )
-            await page.wait_for_timeout(400)
+                if found:
+                    container_sel = sel
+                    break
 
+            if container_sel:
+                # Reset to top first.
+                await page.evaluate(
+                    f"() => {{ const el = document.querySelector({repr(container_sel)}); "
+                    f"if (el) el.scrollTop = 0; }}"
+                )
+                await page.wait_for_timeout(300)
+
+                # Scroll down in 250 px increments with 120 ms between steps.
+                scroll_height = await page.evaluate(
+                    f"() => {{ const el = document.querySelector({repr(container_sel)}); "
+                    f"return el ? el.scrollHeight : 0; }}"
+                )
+                pos = 0
+                while pos < scroll_height:
+                    pos += 250
+                    await page.evaluate(
+                        f"() => {{ const el = document.querySelector({repr(container_sel)}); "
+                        f"if (el) el.scrollTop = {pos}; }}"
+                    )
+                    await page.wait_for_timeout(120)
+            else:
+                # Fallback: scroll the window itself top-to-bottom.
+                await page.evaluate("window.scrollTo(0, 0)")
+                await page.wait_for_timeout(300)
+                total = await page.evaluate("() => document.body.scrollHeight")
+                pos = 0
+                while pos < total:
+                    pos += 250
+                    await page.evaluate(f"window.scrollTo(0, {pos})")
+                    await page.wait_for_timeout(120)
+
+        # Initial sweep after opening the full leaderboard.
+        await _sweep_top_to_bottom()
+
+        # Keep clicking "See more" and re-sweeping until the button is gone.
+        for _ in range(100):
             try:
                 more_btn = page.locator('button:has-text("See more")').first
-                await more_btn.scroll_into_view_if_needed(timeout=2_000)
-                if await more_btn.is_visible(timeout=1_500):
-                    await more_btn.click()
-                    await page.wait_for_timeout(900)
-                else:
+                if not await more_btn.is_visible(timeout=1_500):
                     break
+                await more_btn.click()
+                await page.wait_for_timeout(1_000)  # let new batch start loading
             except Exception:
                 break
+
+            # Sweep again so the newly appended rows all render.
+            await _sweep_top_to_bottom()
 
         # Step 4 — read every player row
         containers = await page.query_selector_all(PLAYER_CONTAINER)
