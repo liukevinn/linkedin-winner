@@ -130,11 +130,3 @@ def compute_standings(
     return per_game, totals
 
 
-##this commit is a change to rest the git capabilities
-
-###added this coment 10:03
-
-
-
-#Testing amending commmits - commit 1 (before ammending it)
-#adjustmnet text to test the ammend (after)
