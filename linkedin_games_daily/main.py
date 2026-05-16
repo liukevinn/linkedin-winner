@@ -4,7 +4,10 @@
 from __future__ import annotations
 import argparse
 import asyncio
+import os
+import subprocess
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +20,7 @@ from rich import box
 from config import PLAYER_NAMES, GAME_URLS, GAME_SCORE_DIRECTIONS, MANUAL_RESULTS
 from scoring import compute_standings, parse_score, _fmt_pts
 
-console = Console(record=True, no_color=True, highlight=False, width=160)
+console = Console(no_color=True, highlight=False, width=160)
 
 GAME_URLS_ORDER = list(GAME_URLS.keys())
 
@@ -175,44 +178,141 @@ def _render_winner(totals: dict[str, float], players: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PDF export
+# Zip + Patches PNG leaderboard card
 # ---------------------------------------------------------------------------
 
-def _export_pdf(output_path: str) -> None:
-    html = console.export_html(inline_styles=True)
+ZIP_PATCHES_GAMES = ("zip", "patches")
 
-    style_patch = """
-    <style>
-      @page { size: A4 landscape; margin: 1.5cm; }
-      body  { margin: 0; padding: 0; background: #ffffff; color: #000000; }
-      pre   { white-space: pre; font-size: 13px; line-height: 1.5;
-              font-family: "Courier New", Courier, monospace;
-              color: #000000; background: #ffffff; }
-    </style>
-    """
-    html = html.replace("</head>", f"{style_patch}</head>")
+_MEDAL = {1: "🥇", 2: "🥈", 3: "🥉"}
 
+
+def _build_leaderboard_html(
+    game_results: dict[str, dict[str, object]],
+    players: list[str],
+    sub_totals: dict[str, float],
+    sorted_players: list[str],
+) -> str:
+    today_str = date.today().strftime("%A, %B %d %Y")
+
+    top_total = sub_totals[sorted_players[0]] if sorted_players else 0
+    winners = [p for p in sorted_players if sub_totals[p] == top_total]
+    winner_label = " & ".join(w.split()[0] for w in winners) + " win" + ("s" if len(winners) == 1 else "") + " today!"
+
+    rows_html = ""
+    prev_total: float | None = None
+    visual_rank = 0
+    display_pos = 0
+    for player in sorted_players:
+        display_pos += 1
+        total = sub_totals[player]
+        if total != prev_total:
+            visual_rank = display_pos
+        prev_total = total
+
+        medal = _MEDAL.get(visual_rank, str(visual_rank))
+        zip_raw = game_results.get("zip", {}).get(player) or "—"
+        patches_raw = game_results.get("patches", {}).get(player) or "—"
+        pts_str = _fmt_pts(total)
+
+        highlight = ' style="background:#fffbeb;"' if visual_rank == 1 else ""
+        rows_html += f"""
+        <tr{highlight}>
+          <td class="medal">{medal}</td>
+          <td class="name">{player}</td>
+          <td class="score">{zip_raw}</td>
+          <td class="score">{patches_raw}</td>
+          <td class="pts">{pts_str}</td>
+        </tr>"""
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #f3f2ef; display: flex; align-items: center; justify-content: center;
+          padding: 18px; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }}
+  .card {{ width: 440px; border-radius: 14px; overflow: hidden;
+           box-shadow: 0 4px 18px rgba(0,0,0,0.18); background: #fff; }}
+  .header {{ background: #0a66c2; color: #fff; padding: 18px 20px 14px; }}
+  .header h1 {{ font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }}
+  .header p  {{ font-size: 12px; opacity: 0.85; margin-top: 3px; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  thead tr {{ background: #f3f2ef; }}
+  thead th {{ font-size: 11px; font-weight: 600; color: #666;
+              text-transform: uppercase; letter-spacing: 0.5px;
+              padding: 9px 12px; text-align: left; }}
+  thead th.r {{ text-align: right; }}
+  tbody tr {{ border-top: 1px solid #e8e8e8; }}
+  tbody tr:hover {{ background: #f9f9f9; }}
+  td {{ padding: 10px 12px; font-size: 14px; color: #1a1a1a; }}
+  td.medal {{ width: 36px; font-size: 18px; text-align: center; padding-left: 8px; }}
+  td.name  {{ font-weight: 600; }}
+  td.score {{ color: #444; text-align: center; }}
+  td.pts   {{ font-weight: 700; color: #0a66c2; text-align: right; }}
+  .footer {{ background: #0a66c2; color: #fff; text-align: center;
+             padding: 12px; font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>Zip + Patches</h1>
+    <p>{today_str}</p>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th></th>
+        <th>Player</th>
+        <th style="text-align:center">Zip</th>
+        <th style="text-align:center">Patches</th>
+        <th class="r">Pts</th>
+      </tr>
+    </thead>
+    <tbody>{rows_html}
+    </tbody>
+  </table>
+  <div class="footer">🏆 {winner_label}</div>
+</div>
+</body>
+</html>"""
+
+
+def _render_png(html: str, out_path: str) -> None:
     async def _run() -> None:
         from playwright.async_api import async_playwright
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
-            page = await browser.new_page(viewport={"width": 1400, "height": 900})
+            page = await browser.new_page(viewport={"width": 476, "height": 800})
             await page.set_content(html, wait_until="load")
-            await page.pdf(
-                path=output_path,
-                print_background=True,
-                margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
-            )
+            card = page.locator(".card")
+            await card.screenshot(path=out_path)
             await browser.close()
 
     asyncio.run(_run())
 
 
-# ---------------------------------------------------------------------------
-# Zip + Patches leaderboard file
-# ---------------------------------------------------------------------------
+def _copy_image_to_clipboard(image_path: str) -> None:
+    swift_code = f"""
+import AppKit
+if let image = NSImage(contentsOfFile: "{image_path}") {{
+    let pb = NSPasteboard.general
+    pb.clearContents()
+    pb.writeObjects([image])
+}}
+"""
+    swift_file = f"/tmp/set_clipboard_{os.getpid()}.swift"
+    with open(swift_file, "w") as f:
+        f.write(swift_code)
+    try:
+        subprocess.run(["swift", swift_file], check=True, capture_output=True)
+    finally:
+        try:
+            os.unlink(swift_file)
+        except OSError:
+            pass
 
-ZIP_PATCHES_GAMES = ("zip", "patches")
 
 def _write_zip_patches_leaderboard(
     game_results: dict[str, dict[str, object]],
@@ -226,36 +326,20 @@ def _write_zip_patches_leaderboard(
     sorted_players = sorted(players, key=lambda p: -sub_totals[p])
 
     today = date.today()
-    out_path = Path(__file__).parent / f"zip_patches_{today}.txt"
+    out_path = Path(__file__).parent / f"zip_patches_{today}.png"
 
-    lines = [
-        f"ZIP + PATCHES LEADERBOARD  -  {today.strftime('%A, %B %d %Y')}",
-        "=" * 50,
-        f"{'Rank':<6}{'Player':<16}{'Zip':>8}{'Patches':>10}{'Pts':>8}",
-        "-" * 50,
-    ]
-
-    prev_total: float | None = None
-    visual_rank = 0
-    display_pos = 0
-    for player in sorted_players:
-        display_pos += 1
-        total = sub_totals[player]
-        if total != prev_total:
-            visual_rank = display_pos
-        prev_total = total
-
-        rank_label = _PLACE.get(visual_rank, str(visual_rank))
-        zip_raw     = game_results.get("zip",     {}).get(player) or "-"
-        patches_raw = game_results.get("patches", {}).get(player) or "-"
-        lines.append(
-            f"{rank_label:<6}{player:<16}{str(zip_raw):>8}{str(patches_raw):>10}{_fmt_pts(total):>8}"
-        )
-
-    lines.append("=" * 50)
-
-    out_path.write_text("\n".join(lines) + "\n")
+    html = _build_leaderboard_html(game_results, players, sub_totals, sorted_players)
+    _render_png(html, str(out_path))
     console.print(f"Zip+Patches leaderboard -> {out_path}")
+
+    try:
+        _copy_image_to_clipboard(str(out_path))
+        console.print("Image copied to clipboard.")
+    except Exception as exc:
+        console.print(f"Clipboard copy failed: {exc}")
+
+    subprocess.Popen(["open", "-a", "Messages"])
+    console.print("Messages opened — paste with Cmd+V and send.")
 
 
 # ---------------------------------------------------------------------------
@@ -318,13 +402,6 @@ def main() -> None:
 
     _render_table(game_results, per_game_pts, totals, players, games)
     _render_winner(totals, players)
-
-    pdf_path = Path(__file__).parent / f"linkedin_games_{date.today()}.pdf"
-    try:
-        _export_pdf(str(pdf_path))
-        console.print(f"\nPDF saved -> {pdf_path}")
-    except Exception as exc:
-        console.print(f"\nPDF export failed: {exc}")
 
     _write_zip_patches_leaderboard(game_results, players)
 
