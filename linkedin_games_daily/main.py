@@ -338,8 +338,15 @@ def _write_zip_patches_leaderboard(
     except Exception as exc:
         console.print(f"Clipboard copy failed: {exc}")
 
-    subprocess.Popen(["open", "-a", "Messages"])
-    console.print("Messages opened — paste with Cmd+V and send.")
+    script = '''
+tell application "Messages"
+    activate
+    set theChat to first chat whose name is "Touse"
+    open theChat
+end tell
+'''
+    subprocess.run(["osascript", "-e", script], capture_output=True)
+    console.print('Messages opened on "Touse" — paste with Cmd+V and send.')
 
 
 # ---------------------------------------------------------------------------
