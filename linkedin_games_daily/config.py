@@ -105,3 +105,4 @@ MANUAL_RESULTS = {
 
 # Path where Playwright saves your LinkedIn session between runs.
 SCRAPER_SESSION_DIR = "~/.linkedin_games_session"
+##TEST PR
