@@ -5,7 +5,7 @@ import re
 from typing import Optional
 
 
-def parse_score(raw) -> Optional[float]:
+def parse_score(raw) -> Optional[int]:
     """
     Convert any score representation to a float (seconds or raw numeric).
 
