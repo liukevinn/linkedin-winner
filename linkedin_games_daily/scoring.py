@@ -1,4 +1,4 @@
-"""Parsing and rank-points scoring for LinkedIn Games."""
+#Version A
 
 from __future__ import annotations
 import re
