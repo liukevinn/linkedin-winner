@@ -5,7 +5,7 @@ import re
 from typing import Optional
 
 
-def parse_score(raw) -> Optional[int]:
+def parse_the_score_asap(raw) -> Optional[int]: #this is the function that converts the score to a number
     """
     Convert any score representation to a float (seconds or raw numeric).
 
