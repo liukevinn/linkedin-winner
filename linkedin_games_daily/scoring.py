@@ -133,16 +133,3 @@ def compute_standings(
 
     return per_game, totals
 
-def calculate_winner(scores):
-    highest = max(scores.values())
-    winners = [name for name, score in scores.items() if score == highest]
-    if len(winners) == 1:
-        return winners[0]
-    else:
-        return winners[0] + " and " + winners[1]
-    return winners
-# change 1
-# change 2
-# change 3
-# change 4
-# change 5
