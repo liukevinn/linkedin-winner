@@ -133,7 +133,10 @@ def compute_standings(
 
     return per_game, totals
 
-
+def calculate_winner(scores):
+    highest = max(scores.values())
+    winners = [name for name, score in scores.items() if score == highest]
+    return winners
 # change 1
 # change 2
 # change 3
