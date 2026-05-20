@@ -22,6 +22,8 @@ def parse_score(raw) -> Optional[float]:
     s = str(raw).strip().lower()
     if not s or s in ("-", "n/a", "none", "dns", "dnf", ""):
         return None
+    if s.startswith("banned:"):
+        return None
 
     # "1:23" or "1:23:45"
     m = re.fullmatch(r"(\d+):(\d{2})(?::(\d{2}))?", s)

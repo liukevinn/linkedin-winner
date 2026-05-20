@@ -22,7 +22,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from config import GAME_URLS, PLAYER_NAMES, SCRAPER_SESSION_DIR
+from config import GAME_URLS, HINT_BAN_SENTINEL, PLAYER_NAMES, SCRAPER_SESSION_DIR
 
 # ---------------------------------------------------------------------------
 # Selectors (confirmed from live LinkedIn Games HTML)
@@ -219,9 +219,12 @@ async def _scrape_game(
             name  = (await name_el.inner_text()).strip()
             score = (await score_el.inner_text()).strip() if score_el else None
 
+            # Track before resolving so we can exempt the current user from hint checks.
+            is_self = name == "You"
+
             # LinkedIn shows the logged-in user as "You" — resolve to real name
             # via the profile image's alt attribute in the same container.
-            if name == "You":
+            if is_self:
                 img = await container.query_selector(
                     ".pr-connections-leaderboard-player__image-container img"
                 )
@@ -229,6 +232,21 @@ async def _scrape_game(
                     alt = await img.get_attribute("alt")
                     if alt:
                         name = alt
+
+            # Patches only: ban players who didn't earn the "no hints" tag.
+            # The current user ("You") is exempt — LinkedIn shows percentile text
+            # instead of the hint indicator for the logged-in player.
+            if game == "patches" and not is_self and score is not None:
+                subtitle_els = await container.query_selector_all(
+                    ".pr-connections-leaderboard-player__subtitle-copy"
+                )
+                has_no_hint = False
+                for el in subtitle_els:
+                    if "hint" in (await el.inner_text()).lower():
+                        has_no_hint = True
+                        break
+                if not has_no_hint:
+                    score = HINT_BAN_SENTINEL
 
             if name and score:
                 scraped[name] = score

@@ -1,0 +1,14 @@
+LinkedIn Games — Tuesday, May 19 2026
+
+                                                                  
+  Rank    Player            Zip            Patches           Pts  
+ ──────────────────────────────────────────────────────────────── 
+   1st    Daniel Suh      1  0:06          2  0:09          12.5  
+   2nd    Kevin Liu       1  0:06          4  0:13          10.5  
+   3rd    Kaden Chien     5  0:14          1  0:05            10  
+    4     Eric Guan       3  0:08          5  0:20             8  
+    5     Aiden Tauro     6  0:16          3  0:10             7  
+    6     Matthew Lu      4  0:11    banned: used a hint       4  
+    7     Evan Zhong         -                -                0  
+                                                                  
+Winner: Daniel Suh  (12.5 pts)

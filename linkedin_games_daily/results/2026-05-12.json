@@ -1,0 +1,46 @@
+{
+  "date": "2026-05-12",
+  "players": [
+    "Kevin Liu",
+    "Daniel Suh",
+    "Aiden Tauro",
+    "Eric Guan",
+    "Kaden Chien",
+    "Evan Zhong",
+    "Matthew Lu"
+  ],
+  "games": [
+    "zip",
+    "patches"
+  ],
+  "totals": {
+    "Kevin Liu": 10.0,
+    "Daniel Suh": 8.0,
+    "Aiden Tauro": 5.5,
+    "Eric Guan": 8.0,
+    "Kaden Chien": 12.5,
+    "Evan Zhong": 9.0,
+    "Matthew Lu": 3.0
+  },
+  "per_game_pts": {
+    "zip": {
+      "Kevin Liu": 4.5,
+      "Daniel Suh": 4.5,
+      "Aiden Tauro": 4.5,
+      "Eric Guan": 4.5,
+      "Kaden Chien": 7.0,
+      "Evan Zhong": 2.0,
+      "Matthew Lu": 1.0
+    },
+    "patches": {
+      "Kevin Liu": 5.5,
+      "Daniel Suh": 3.5,
+      "Aiden Tauro": 1.0,
+      "Eric Guan": 3.5,
+      "Kaden Chien": 5.5,
+      "Evan Zhong": 7.0,
+      "Matthew Lu": 2.0
+    }
+  },
+  "banned": {}
+}
