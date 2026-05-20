@@ -4,6 +4,7 @@
 from __future__ import annotations
 import argparse
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -17,10 +18,12 @@ from rich.panel import Panel
 from rich.text import Text
 from rich import box
 
-from config import PLAYER_NAMES, GAME_URLS, GAME_SCORE_DIRECTIONS, MANUAL_RESULTS
+from config import PLAYER_NAMES, GAME_URLS, GAME_SCORE_DIRECTIONS, HINT_BAN_SENTINEL, MANUAL_RESULTS
 from scoring import compute_standings, parse_score, _fmt_pts
 
 console = Console(no_color=True, highlight=False, width=160)
+
+RESULTS_DIR = Path(__file__).parent / "results"
 
 GAME_URLS_ORDER = list(GAME_URLS.keys())
 
@@ -118,13 +121,13 @@ def _rank_cell(rank_info: tuple | None) -> str:
 # Display
 # ---------------------------------------------------------------------------
 
-def _render_table(
+def _build_rich_table(
     game_results: dict[str, dict[str, object]],
     per_game_pts: dict[str, dict[str, float]],
     totals: dict[str, float],
     players: list[str],
     games: list[str],
-) -> None:
+) -> Table:
     game_ranks = _compute_game_ranks(game_results, GAME_SCORE_DIRECTIONS, players)
     sorted_players = sorted(players, key=lambda p: -totals[p])
 
@@ -157,8 +160,18 @@ def _render_table(
         row.append(_fmt_pts(total))
         table.add_row(*row)
 
+    return table
+
+
+def _render_table(
+    game_results: dict[str, dict[str, object]],
+    per_game_pts: dict[str, dict[str, float]],
+    totals: dict[str, float],
+    players: list[str],
+    games: list[str],
+) -> None:
     console.print()
-    console.print(table)
+    console.print(_build_rich_table(game_results, per_game_pts, totals, players, games))
 
 
 def _render_winner(totals: dict[str, float], players: list[str]) -> None:
@@ -175,6 +188,52 @@ def _render_winner(totals: dict[str, float], players: list[str]) -> None:
         panel = Panel(msg, title="It's a Tie!", padding=(1, 4))
 
     console.print(panel)
+
+
+def _save_daily_results(
+    game_results: dict[str, dict[str, object]],
+    per_game_pts: dict[str, dict[str, float]],
+    totals: dict[str, float],
+    players: list[str],
+    games: list[str],
+    today: date,
+) -> None:
+    RESULTS_DIR.mkdir(exist_ok=True)
+    date_str = today.strftime("%Y-%m-%d")
+
+    # --- txt: human-readable table written via a file-backed Console ---
+    txt_path = RESULTS_DIR / f"{date_str}.txt"
+    with open(txt_path, "w", encoding="utf-8") as fh:
+        fc = Console(file=fh, no_color=True, highlight=False, width=100)
+        fc.print(f"LinkedIn Games — {today.strftime('%A, %B %d %Y')}")
+        fc.print()
+        fc.print(_build_rich_table(game_results, per_game_pts, totals, players, games))
+        top = max(totals[p] for p in players)
+        winners = [p for p in players if totals[p] == top]
+        if len(winners) == 1:
+            fc.print(f"Winner: {winners[0]}  ({_fmt_pts(top)} pts)")
+        else:
+            fc.print(f"Tie: {' & '.join(winners)}  ({_fmt_pts(top)} pts each)")
+
+    # --- json: structured data for the aggregator ---
+    banned: dict[str, list[str]] = {}
+    for game, scores in game_results.items():
+        b = [p for p, s in scores.items() if s == HINT_BAN_SENTINEL]
+        if b:
+            banned[game] = b
+
+    json_path = RESULTS_DIR / f"{date_str}.json"
+    with open(json_path, "w", encoding="utf-8") as fh:
+        json.dump({
+            "date": date_str,
+            "players": players,
+            "games": games,
+            "totals": totals,
+            "per_game_pts": per_game_pts,
+            "banned": banned,
+        }, fh, indent=2)
+
+    console.print(f"Results saved -> {txt_path.relative_to(Path(__file__).parent)}")
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +469,7 @@ def main() -> None:
     _render_table(game_results, per_game_pts, totals, players, games)
     _render_winner(totals, players)
 
+    _save_daily_results(game_results, per_game_pts, totals, players, games, date.today())
     _write_zip_patches_leaderboard(game_results, players)
 
 

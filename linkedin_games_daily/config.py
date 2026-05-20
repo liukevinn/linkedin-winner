@@ -6,6 +6,10 @@ MANUAL_RESULTS — only needed if scraping fails (--manual mode).
 
 PLAYER_NAMES = ["Kevin Liu", "Daniel Suh", "Aiden Tauro", "Eric Guan", "Kaden Chien", "Evan Zhong", "Matthew Lu"]
 
+# Sentinel value stored in game_results when a player used hints (patches only).
+# parse_score() treats this as None (0 pts); display layers check for it explicitly.
+HINT_BAN_SENTINEL = "BANNED:hint"
+
 GAME_URLS = {
     #"pinpoint":   "https://www.linkedin.com/games/pinpoint/results",
     #"queens":     "https://www.linkedin.com/games/queens/results",
